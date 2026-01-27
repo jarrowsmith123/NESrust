@@ -17,6 +17,11 @@ pub struct PPU {
     pub mirroring: Mirroring,
 
     pub data_buf: u8,
+
+    scanline: u16,
+    cycles: usize,
+
+    pub nmi_interupt: Option<u8>,
 }
 
 impl PPU {
@@ -34,6 +39,9 @@ impl PPU {
             scroll: ScrollRegister::new(),
             mirroring,
             data_buf: 0,
+            scanline: 0,
+            cycles: 0,
+            nmi_interupt: None
         }
     }
     pub fn write_ppu_addr(&mut self, value: u8) {
@@ -41,7 +49,11 @@ impl PPU {
     }
 
     pub fn write_ctrl(&mut self, value: u8) {
+        let nmi_status = self.ctrl.generate_vblank_nmi();
         self.ctrl.update(value);
+        if !nmi_status && self.ctrl.generate_vblank_nmi() && self.status.is_vblank(){
+            self.nmi_interupt = Some(1);
+        }
     }
 
     pub fn write_mask(&mut self, value: u8) {
@@ -127,7 +139,7 @@ impl PPU {
 
     pub fn read_status(&mut self) -> u8 {
         let data = self.status.get();
-        self.status.reset_vbank_flag();
+        self.status.reset_vblank_flag();
         self.addr.reset_latch();
         data
     }
@@ -141,6 +153,33 @@ impl PPU {
             self.oam_data[self.oam_addr as usize] = *x;
             self.oam_addr = self.oam_addr.wrapping_add(1);
         }
+    }
+
+    pub fn cycle_clock(&mut self, cycles: u8) -> bool{
+        self.cycles += cycles as usize;
+        if self.cycles >= 341{
+            self.cycles = self.cycles - 341;
+            self.scanline += 1;
+
+            if self.scanline == 241{
+                if self.ctrl.generate_vblank_nmi(){
+                    self.status.set_vblank_status(true);
+                    self.nmi_interupt = Some(1);
+                }
+            }
+
+            if self.scanline >= 262 {
+                self.scanline = 0;
+                self.nmi_interupt = None;
+                self.status.reset_vblank_flag();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub fn poll_interupt(&mut self) -> Option<u8>{
+        self.nmi_interupt.take()
     }
 }
 
@@ -217,6 +256,38 @@ impl ControlRegister {
         }
     }
 
+    pub fn sprite_pattern_addr(&self) -> u16{
+        if self.bits & Self::SPRITE_PATTERN_ADDR == 0{
+            0
+        }
+        else{
+            0x1000
+        }
+    }
+
+    pub fn background_pattern_addr(&self) -> u16{
+        if self.bits & Self::BACKROUND_PATTERN_ADDR == 0{
+            0
+        }
+        else{
+            0x1000
+        }
+    }
+
+    pub fn sprite_size(&self) -> u8{
+        if self.bits & Self::SPRITE_SIZE == 0{
+            8
+        }
+        else{
+            16
+        }
+    }
+
+
+    pub fn generate_vblank_nmi(&self) -> bool{
+        return self.bits & Self::NMI_ENABLE != 0
+    }
+
     pub fn update(&mut self, data: u8) {
         self.bits = data;
     }
@@ -229,7 +300,7 @@ impl StatusRegister {
     pub const PPU_OPEN_BUS: u8 = 0b0001_1111;
     pub const SPRITE_OVERFLOW: u8 = 0b0010_0000;
     pub const SPRITE_0_HIT: u8 = 0b0100_0000;
-    pub const VBANK: u8 = 0b1000_0000;
+    pub const VBLANK: u8 = 0b1000_0000;
 
     pub fn new() -> Self {
         StatusRegister { bits: 0 }
@@ -239,8 +310,24 @@ impl StatusRegister {
         self.bits
     }
 
-    pub fn reset_vbank_flag(&mut self) {
-        self.bits &= !Self::VBANK;
+    pub fn is_vblank(&self) -> bool{
+        if self.bits & Self::VBLANK == 0{
+            return false
+        }
+        return true
+    }
+
+    pub fn set_vblank_status(&mut self, status: bool){
+        if status{
+            self.bits &= Self::VBLANK;
+        }
+        else{
+            self.bits &= !Self::VBLANK;
+        }
+    }
+
+    pub fn reset_vblank_flag(&mut self) {
+        self.bits &= !Self::VBLANK;
     }
 }
 

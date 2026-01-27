@@ -99,4 +99,8 @@ impl Bus {
         }
         self.prg_rom[addr as usize]
     }
+
+    pub fn poll_interupt(&mut self) -> Option<u8>{
+        self.ppu.poll_interupt()
+    }
 }

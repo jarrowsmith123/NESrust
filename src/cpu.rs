@@ -730,6 +730,33 @@ impl CPU {
         }
     }
 
+    fn interupt_nmi(&mut self){
+        let hi = (self.program_counter >> 8) as u8;
+        let lo = (self.program_counter & 0xFF) as u8;
+        self.push(hi);
+        self.push(lo);
+
+        self.push(self.status);
+        self.sei();
+
+        self.bus.cycle_clock(2);
+        self.program_counter = self.mem_read_u16(0xFFFA)
+
+    }
+
+    fn interupt_brk(&mut self){
+        let hi = (self.program_counter >> 8) as u8;
+        let lo = (self.program_counter & 0xFF) as u8;
+        self.push(hi);
+        self.push(lo);
+
+        self.push(self.status);
+        self.sei();
+
+        self.bus.cycle_clock(7);
+        self.program_counter = self.mem_read_u16(0xFFFE);        
+    }
+
     pub fn run(&mut self) {
         self.run_with_callback(|_| {});
     }
@@ -739,6 +766,9 @@ impl CPU {
         F: FnMut(&mut CPU),
     {
         loop {
+            if let Some(_nmi) = self.bus.poll_interupt(){
+                self.interupt_nmi()
+            }
             callback(self);
             println!("{}", self.get_trace());
             let opcode = self.mem_read(self.program_counter);
@@ -1456,7 +1486,7 @@ impl CPU {
 
                 // BRK
                 0x00 => {
-                    return;
+                    self.interupt_brk();
                 }
 
                 _ => {}
