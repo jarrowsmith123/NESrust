@@ -1,12 +1,12 @@
 use crate::bus::Bus;
-pub struct CPU {
+pub struct CPU <'a>{
     pub accumulator: u8,
     pub register_x: u8,
     pub register_y: u8,
     pub status: u8,
     pub program_counter: u16,
     pub stack_pointer: u8,
-    pub bus: Bus,
+    pub bus: Bus<'a>,
 }
 
 /// # Status Register (P) http://wiki.nesdev.com/w/index.php/Status_flags
@@ -37,8 +37,8 @@ pub enum AddressingMode {
     NoneAddressing,
 }
 
-impl CPU {
-    pub fn new(bus: Bus) -> Self {
+impl<'a> CPU <'a>{
+    pub fn new<'b>(bus: Bus<'b>) -> CPU<'b> {        
         CPU {
             accumulator: 0,
             register_x: 0,
@@ -50,7 +50,7 @@ impl CPU {
         }
     }
 
-    fn get_trace(&mut self) -> String {
+    pub fn get_trace(&mut self) -> String {
         let pc = self.program_counter;
         let opcode = self.mem_read(pc);
 
@@ -85,8 +85,10 @@ impl CPU {
         }
         let hex_bytes = bytes.join(" ");
 
+
+
         format!(
-            "{:04X}  {:9} A:{:02X} X:{:02X} Y:{:02X} P:{:08b} SP:{:02X}",
+            "{:04X}  {:9} A:{:02X} X:{:02X} Y:{:02X} P:{:08b} SP:{:02X} PA:{:02X} PM:{:08b} PC:{:08b} PSC:{:02X} PS:{:08b} PPU: {:03}:{:03}",
             pc,
             hex_bytes, // This will be like "A9 01"
             self.accumulator,
@@ -94,40 +96,47 @@ impl CPU {
             self.register_y,
             self.status,
             self.stack_pointer,
+            self.bus.ppu.addr.get(),
+            self.bus.ppu.mask.get(),
+            self.bus.ppu.ctrl.get(),
+            self.bus.ppu.scroll.get(),
+            self.bus.ppu.status.get(),
+            self.bus.ppu.scanline,
+            self.bus.ppu.cycles,
         )
     }
 
-    fn get_address_from_opcode(&mut self, mode: AddressingMode) -> (u16,bool) {
+    fn get_address_from_opcode(&mut self, mode: AddressingMode) -> (u16, bool) {
         match mode {
             // Immediatet - uses no address from opcode
             AddressingMode::Immediate => {
                 let addr = self.program_counter;
                 self.program_counter += 1;
-                (addr,false)
+                (addr, false)
             }
             // Zero page - only one byte address
             AddressingMode::ZeroPage => {
                 let addr = self.mem_read(self.program_counter) as u16;
                 self.program_counter += 1;
-                (addr,false)
+                (addr, false)
             }
             // Absolute - 2 byte address
             AddressingMode::Absolute => {
                 let addr = self.mem_read_u16(self.program_counter);
                 self.program_counter += 2;
-                (addr,false)
+                (addr, false)
             }
             // Zero page X - one byte + value stored in x register
             AddressingMode::ZeroPageX => {
                 let start = self.mem_read(self.program_counter);
                 self.program_counter += 1;
-                (start.wrapping_add(self.register_x) as u16,false)
+                (start.wrapping_add(self.register_x) as u16, false)
             }
             // Zero page Y - same as above but for register y
             AddressingMode::ZeroPageY => {
                 let start = self.mem_read(self.program_counter);
                 self.program_counter += 1;
-                (start.wrapping_add(self.register_y) as u16,false)
+                (start.wrapping_add(self.register_y) as u16, false)
             }
             // Absolute X - read next 2 bytes + register x
             AddressingMode::AbsoluteX => {
@@ -156,7 +165,7 @@ impl CPU {
                 let lo = self.mem_read(ptr as u16);
                 let hi = self.mem_read(ptr.wrapping_add(1) as u16);
 
-                (u16::from_le_bytes([lo, hi]),false)
+                (u16::from_le_bytes([lo, hi]), false)
             }
             // Indirect Y - read byte, look up 16 byte address then add Y
             AddressingMode::IndirectY => {
@@ -168,7 +177,7 @@ impl CPU {
                 let addr = u16::from_le_bytes([lo, hi]);
                 let final_addr = addr.wrapping_add(self.register_y as u16);
                 let page_crossed = (addr & 0xFF00) != (final_addr & 0xFF00);
-                (final_addr,page_crossed)
+                (final_addr, page_crossed)
             }
             _ => {
                 todo!()
@@ -182,7 +191,7 @@ impl CPU {
         let (addr, wrapping) = self.get_address_from_opcode(mode);
         let value = self.mem_read(addr);
         self.accumulator = value;
-        if wrapping{
+        if wrapping {
             self.bus.cycle_clock(1);
         }
 
@@ -193,41 +202,41 @@ impl CPU {
         let (addr, wrapping) = self.get_address_from_opcode(mode);
         let value = self.mem_read(addr);
         self.register_x = value;
-        if wrapping{
+        if wrapping {
             self.bus.cycle_clock(1);
         }
         self.update_flags(self.register_x);
     }
 
     fn ldy(&mut self, mode: AddressingMode) {
-        let (addr,wrapping) = self.get_address_from_opcode(mode);
+        let (addr, wrapping) = self.get_address_from_opcode(mode);
         let value = self.mem_read(addr);
         self.register_y = value;
-        if wrapping{
+        if wrapping {
             self.bus.cycle_clock(1);
         }
         self.update_flags(self.register_y);
     }
 
     fn sta(&mut self, mode: AddressingMode) {
-        let (addr,_wrapping) = self.get_address_from_opcode(mode);
+        let (addr, _wrapping) = self.get_address_from_opcode(mode);
         self.mem_write(addr, self.accumulator);
     }
 
     fn stx(&mut self, mode: AddressingMode) {
-        let (addr,_wrapping) = self.get_address_from_opcode(mode);
+        let (addr, _wrapping) = self.get_address_from_opcode(mode);
         self.mem_write(addr, self.register_x);
     }
 
     fn sty(&mut self, mode: AddressingMode) {
-        let (addr,_wrapping) = self.get_address_from_opcode(mode);
+        let (addr, _wrapping) = self.get_address_from_opcode(mode);
         self.mem_write(addr, self.register_y);
     }
 
     fn adc(&mut self, mode: AddressingMode) {
-        let (addr,wrapping) = self.get_address_from_opcode(mode);
+        let (addr, wrapping) = self.get_address_from_opcode(mode);
         let value = self.mem_read(addr);
-        if wrapping{
+        if wrapping {
             self.bus.cycle_clock(1);
         }
         self.add_to_accumulator(value);
@@ -235,10 +244,10 @@ impl CPU {
     }
 
     fn sbc(&mut self, mode: AddressingMode) {
-        let (addr,wrapping) = self.get_address_from_opcode(mode);
+        let (addr, wrapping) = self.get_address_from_opcode(mode);
         let value = self.mem_read(addr);
         self.add_to_accumulator(!value);
-        if wrapping{
+        if wrapping {
             self.bus.cycle_clock(1);
         }
         self.update_flags(self.accumulator);
@@ -282,37 +291,37 @@ impl CPU {
     }
 
     fn and(&mut self, mode: AddressingMode) {
-        let (addr,wrapping) = self.get_address_from_opcode(mode);
+        let (addr, wrapping) = self.get_address_from_opcode(mode);
         let data = self.mem_read(addr);
         self.accumulator &= data;
-        if wrapping{
+        if wrapping {
             self.bus.cycle_clock(1);
         }
         self.update_flags(self.accumulator);
     }
 
     fn eor(&mut self, mode: AddressingMode) {
-        let (addr,wrapping) = self.get_address_from_opcode(mode);
+        let (addr, wrapping) = self.get_address_from_opcode(mode);
         let data = self.mem_read(addr);
         self.accumulator ^= data;
-        if wrapping{
+        if wrapping {
             self.bus.cycle_clock(1);
         }
         self.update_flags(self.accumulator);
     }
 
     fn ora(&mut self, mode: AddressingMode) {
-        let (addr,wrapping) = self.get_address_from_opcode(mode);
+        let (addr, wrapping) = self.get_address_from_opcode(mode);
         let data = self.mem_read(addr);
         self.accumulator |= data;
-        if wrapping{
+        if wrapping {
             self.bus.cycle_clock(1);
         }
         self.update_flags(self.accumulator);
     }
 
     fn bit(&mut self, mode: AddressingMode) {
-        let (addr,_wrapping) = self.get_address_from_opcode(mode);
+        let (addr, _wrapping) = self.get_address_from_opcode(mode);
         let data = self.mem_read(addr);
         let result = self.accumulator & data;
         if result == 0 {
@@ -326,23 +335,23 @@ impl CPU {
     }
 
     fn cmp(&mut self, mode: AddressingMode) {
-        let (addr,wrapping) = self.get_address_from_opcode(mode);
+        let (addr, wrapping) = self.get_address_from_opcode(mode);
         self.compare(addr, self.accumulator);
-        if wrapping{
+        if wrapping {
             self.bus.cycle_clock(1);
         }
     }
     fn cpx(&mut self, mode: AddressingMode) {
-        let (addr,wrapping) = self.get_address_from_opcode(mode);
+        let (addr, wrapping) = self.get_address_from_opcode(mode);
         self.compare(addr, self.register_x);
-        if wrapping{
+        if wrapping {
             self.bus.cycle_clock(1);
         }
     }
     fn cpy(&mut self, mode: AddressingMode) {
-        let (addr,wrapping) = self.get_address_from_opcode(mode);
+        let (addr, wrapping) = self.get_address_from_opcode(mode);
         self.compare(addr, self.register_y);
-        if wrapping{
+        if wrapping {
             self.bus.cycle_clock(1);
         }
     }
@@ -364,7 +373,7 @@ impl CPU {
     }
 
     fn inc(&mut self, mode: AddressingMode) {
-        let (addr,_wrapping) = self.get_address_from_opcode(mode);
+        let (addr, _wrapping) = self.get_address_from_opcode(mode);
         let data = self.mem_read(addr);
         let data = data.wrapping_add(1);
         self.mem_write(addr, data);
@@ -377,7 +386,7 @@ impl CPU {
     }
 
     fn dec(&mut self, mode: AddressingMode) {
-        let (addr,_wrapping) = self.get_address_from_opcode(mode);
+        let (addr, _wrapping) = self.get_address_from_opcode(mode);
         let data = self.mem_read(addr);
         let data = data.wrapping_sub(1);
         self.mem_write(addr, data);
@@ -409,7 +418,7 @@ impl CPU {
     }
 
     fn asl(&mut self, mode: AddressingMode) {
-        let (addr,_wrapping) = self.get_address_from_opcode(mode);
+        let (addr, _wrapping) = self.get_address_from_opcode(mode);
         let data = self.mem_read(addr);
         if (data & 0b1000_0000) == 0b1000_0000 {
             // set carry
@@ -438,7 +447,7 @@ impl CPU {
     }
 
     fn lsr(&mut self, mode: AddressingMode) {
-        let (addr,_wrapping) = self.get_address_from_opcode(mode);
+        let (addr, _wrapping) = self.get_address_from_opcode(mode);
         let data = self.mem_read(addr);
         if (data & 0b0000_0001) == 0b0000_0001 {
             // set carry
@@ -467,7 +476,7 @@ impl CPU {
         self.update_flags(data);
     }
     fn rol(&mut self, mode: AddressingMode) {
-        let (addr,_wrapping) = self.get_address_from_opcode(mode);
+        let (addr, _wrapping) = self.get_address_from_opcode(mode);
         let mut data = self.mem_read(addr);
         if (data & 0b1000_0000) == 0b1000_0000 {
             data = data << 1;
@@ -500,7 +509,7 @@ impl CPU {
         self.update_flags(data);
     }
     fn ror(&mut self, mode: AddressingMode) {
-        let (addr,_wrapping) = self.get_address_from_opcode(mode);
+        let (addr, _wrapping) = self.get_address_from_opcode(mode);
         let mut data = self.mem_read(addr);
         if (data & 0b0000_0001) == 0b0000_0001 {
             data >>= 1;
@@ -731,7 +740,7 @@ impl CPU {
         }
     }
 
-    fn interupt_nmi(&mut self){
+    fn interupt_nmi(&mut self) {
         let hi = (self.program_counter >> 8) as u8;
         let lo = (self.program_counter & 0xFF) as u8;
         self.push(hi);
@@ -742,10 +751,9 @@ impl CPU {
 
         self.bus.cycle_clock(2);
         self.program_counter = self.mem_read_u16(0xFFFA)
-
     }
 
-    fn interupt_brk(&mut self){
+    fn interupt_brk(&mut self) {
         self.program_counter = self.program_counter.wrapping_add(1);
         let hi = (self.program_counter >> 8) as u8;
         let lo = (self.program_counter & 0xFF) as u8;
@@ -756,7 +764,7 @@ impl CPU {
         self.sei();
 
         self.bus.cycle_clock(7);
-        self.program_counter = self.mem_read_u16(0xFFFE);        
+        self.program_counter = self.mem_read_u16(0xFFFE);
     }
 
     pub fn run(&mut self) {
@@ -768,11 +776,11 @@ impl CPU {
         F: FnMut(&mut CPU),
     {
         loop {
-            if let Some(_nmi) = self.bus.poll_interupt(){
+            if let Some(_nmi) = self.bus.poll_interupt() {
                 self.interupt_nmi()
             }
             callback(self);
-            println!("{}", self.get_trace());
+            //println!("{}", self.get_trace());
             let opcode = self.mem_read(self.program_counter);
             self.program_counter += 1;
 
