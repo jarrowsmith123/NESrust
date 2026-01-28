@@ -9,18 +9,13 @@ use bus::Bus;
 use cart::ROM;
 use cpu::CPU;
 use ppu::PPU;
-use rand::Rng;
-use sdl2::EventPump;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use sdl2::pixels::Color;
 use sdl2::pixels::PixelFormatEnum;
 
 use crate::render::Frame;
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::BufWriter;
-use std::io::Write;
+
 
 
 fn main() {
@@ -75,7 +70,12 @@ fn main() {
                 } => std::process::exit(0),
 
 
-                
+                Event::KeyDown { keycode, .. } => {
+                    if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
+                        joypad.set_button_pressed_status(*key, true);
+                    }
+            
+                }
                 Event::KeyUp { keycode, .. } => {
                     if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
                         joypad.set_button_pressed_status(*key, false);
@@ -91,5 +91,4 @@ fn main() {
 
     cpu.reset();
     cpu.run();
-
 }
