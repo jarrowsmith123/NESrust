@@ -319,10 +319,10 @@ impl StatusRegister {
 
     pub fn set_vblank_status(&mut self, status: bool){
         if status{
-            self.bits &= Self::VBLANK;
+            self.bits |= Self::VBLANK;
         }
         else{
-            self.bits &= !Self::VBLANK;
+            self.bits |= !Self::VBLANK;
         }
     }
 
@@ -372,7 +372,7 @@ impl ScrollRegister {
     }
 
     pub fn write(&mut self, data: u8) {
-        if !self.hi_ptr {
+        if self.hi_ptr {
             self.scroll_x = data;
         } else {
             self.scroll_y = data;

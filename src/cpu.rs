@@ -605,6 +605,7 @@ impl CPU {
         self.update_flags(self.accumulator);
     }
     fn php(&mut self) {
+        // set B flag here
         self.push(self.status | 0b0011_0000)
     }
     fn plp(&mut self) {
@@ -646,7 +647,7 @@ impl CPU {
             let jump_addr = self.program_counter.wrapping_add(offset as u16);
             self.program_counter = jump_addr;
             // check to see if page is crossed
-            if (self.program_counter.wrapping_add(1) & 0xFF00) != (jump_addr & 0xFF00) {
+            if (self.program_counter & 0xFF00) != (jump_addr & 0xFF00) {
                 self.bus.cycle_clock(1);
             }
         }
@@ -736,7 +737,7 @@ impl CPU {
         self.push(hi);
         self.push(lo);
 
-        self.push(self.status);
+        self.push(self.status | 0b0010_0000);
         self.sei();
 
         self.bus.cycle_clock(2);
@@ -745,12 +746,13 @@ impl CPU {
     }
 
     fn interupt_brk(&mut self){
+        self.program_counter = self.program_counter.wrapping_add(1);
         let hi = (self.program_counter >> 8) as u8;
         let lo = (self.program_counter & 0xFF) as u8;
         self.push(hi);
         self.push(lo);
-
-        self.push(self.status);
+        // push flag plus B flag
+        self.push(self.status | 0b0011_0000);
         self.sei();
 
         self.bus.cycle_clock(7);

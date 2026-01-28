@@ -25,7 +25,7 @@ impl Bus {
 
     pub fn cycle_clock(&mut self, cycles: u8){
         self.cycles += cycles as usize;
-        
+        self.ppu.cycle_clock( cycles * 3);
     }
 
     pub fn mem_read(&mut self, addr: u16) -> u8 {
