@@ -24,3 +24,6 @@ target
 # Added by cargo
 
 /target
+
+# Lets not do any piracy here
+*.nes
