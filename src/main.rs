@@ -1,9 +1,9 @@
 pub mod bus;
 pub mod cart;
+pub mod controller;
 pub mod cpu;
 pub mod ppu;
 pub mod render;
-pub mod controller;
 
 use bus::Bus;
 use cart::ROM;
@@ -15,8 +15,6 @@ use sdl2::pixels::PixelFormatEnum;
 
 use crate::render::Frame;
 use std::collections::HashMap;
-
-
 
 fn main() {
     let mut key_map = HashMap::new();
@@ -52,9 +50,7 @@ fn main() {
 
     let mut frame = Frame::new();
 
-
     let bus = Bus::new(rom, move |ppu: &PPU, joypad: &mut controller::Joypad| {
-
         render::render(ppu, &mut frame);
         texture.update(None, &frame.data, 256 * 2 * 3).unwrap();
 
@@ -69,12 +65,10 @@ fn main() {
                     ..
                 } => std::process::exit(0),
 
-
                 Event::KeyDown { keycode, .. } => {
                     if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
                         joypad.set_button_pressed_status(*key, true);
                     }
-            
                 }
                 Event::KeyUp { keycode, .. } => {
                     if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {

@@ -1,5 +1,4 @@
 use core::panic;
-
 use crate::cart::Mirroring;
 
 pub struct PPU {
@@ -106,7 +105,7 @@ impl PPU {
                 self.palette_table[(add_mirror - 0x3f00) as usize]
             }
 
-            0x3f00..=0x3fff => {self.palette_table[(addr - 0x3f00) as usize]},
+            0x3f00..=0x3fff => self.palette_table[(addr - 0x3f00) as usize],
             _ => panic!(),
         }
     }
@@ -168,10 +167,8 @@ impl PPU {
     pub fn cycle_clock(&mut self, cycles: u8) -> bool {
         self.cycles += cycles as usize;
 
-        
-
         if self.cycles >= 341 {
-            if self.is_sprite_0_hit(self.cycles){
+            if self.is_sprite_0_hit(self.cycles) {
                 self.status.set_sprite_zero_hit(true);
             }
             self.cycles -= 341;
@@ -199,7 +196,10 @@ impl PPU {
     fn is_sprite_0_hit(&self, cycle: usize) -> bool {
         let y = self.oam_data[0] as usize;
         let x = self.oam_data[3] as usize;
-        (y == self.scanline as usize) && x <= cycle && self.mask.is_sprites_enabled() && self.mask.is_background_enabled()
+        (y == self.scanline as usize)
+            && x <= cycle
+            && self.mask.is_sprites_enabled()
+            && self.mask.is_background_enabled()
     }
 
     pub fn poll_interupt(&mut self) -> Option<u8> {
@@ -318,10 +318,10 @@ impl ControlRegister {
         self.bits = data;
     }
 
-    pub fn get(&self) -> u8{
+    pub fn get(&self) -> u8 {
         self.bits
     }
-    
+
     pub fn nametable_addr(&self) -> u16 {
         match self.bits & 0b11 {
             0 => 0x2000,
@@ -403,15 +403,17 @@ impl MaskRegister {
         self.bits
     }
 
-    pub fn is_sprites_enabled(&self) -> bool{
+    pub fn is_sprites_enabled(&self) -> bool {
         (self.bits & Self::ENABLE_SPRITES) != 0
     }
 
-    pub fn is_background_enabled(&self) -> bool{
+    pub fn is_background_enabled(&self) -> bool {
         (self.bits & Self::ENABLE_BCKGRND) != 0
     }
 
-
+    pub fn show_background(&mut self) {
+        self.bits |= Self::ENABLE_BCKGRND;
+    }
 }
 
 pub struct ScrollRegister {
@@ -442,7 +444,7 @@ impl ScrollRegister {
         self.latch = false;
     }
 
-    pub fn get(&self) -> u16{
+    pub fn get(&self) -> u16 {
         u16::from_le_bytes([self.scroll_x, self.scroll_y])
     }
 }

@@ -19,9 +19,9 @@ pub struct Bus<'call> {
 
 impl<'a> Bus<'a> {
     pub fn new<'call, F>(rom: ROM, gameloop_callback: F) -> Bus<'call>
-   where
-       F: FnMut(&PPU, &mut Joypad) + 'call,
-   {
+    where
+        F: FnMut(&PPU, &mut Joypad) + 'call,
+    {
         let ppu = PPU::new(rom.chr_rom, rom.screen_mirroring);
         Bus {
             vram: [0; 2048],
@@ -31,8 +31,6 @@ impl<'a> Bus<'a> {
             gameloop_callback: Box::from(gameloop_callback),
             joypad1: Joypad::new(),
             joypad2: Joypad::new(),
-
-
         }
     }
 
@@ -40,9 +38,9 @@ impl<'a> Bus<'a> {
         self.cycles += cycles as usize;
 
         let nmi_before = self.ppu.nmi_interupt.is_some();
-        self.ppu.cycle_clock(cycles *3);
+        self.ppu.cycle_clock(cycles * 3);
         let nmi_after = self.ppu.nmi_interupt.is_some();
-        
+
         if !nmi_before && nmi_after {
             (self.gameloop_callback)(&self.ppu, &mut self.joypad1);
         }
@@ -62,10 +60,8 @@ impl<'a> Bus<'a> {
                 let _mirror_down_addr = addr & 0b00100000_00000111;
                 self.mem_read(_mirror_down_addr)
             }
-            0x4016 => {
-                self.joypad1.read()
-            }
-            
+            0x4016 => self.joypad1.read(),
+
             0x8000..=0xFFFF => self.read_prg_rom(addr),
             _ => 0,
         }
@@ -117,15 +113,12 @@ impl<'a> Bus<'a> {
                 self.ppu.cycle_clock(255);
                 self.ppu.cycle_clock(255);
                 self.ppu.cycle_clock(9);
-                
             }
             0x4016 => {
                 self.joypad1.write(data);
             }
-    
-            0x8000..=0xFFFF => {
-                {}
-            }
+
+            0x8000..=0xFFFF => {}
             _ => {}
         }
     }

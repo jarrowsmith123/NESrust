@@ -1,5 +1,6 @@
-use crate::ppu::PPU;
 use crate::cart::Mirroring;
+use crate::ppu::PPU;
+
 pub static SYSTEM_PALLETE: [(u8, u8, u8); 64] = [
     (0x80, 0x80, 0x80),
     (0x00, 0x3D, 0xA6),
@@ -91,185 +92,181 @@ impl Frame {
     }
 }
 
-fn bg_pallette(ppu: &PPU, attribute_table: &[u8], tile_column: usize, tile_row: usize) -> [u8; 4] {
-    let attr_table_idx = tile_row / 4 * 8 + tile_column / 4;
-    let attr_byte = attribute_table[attr_table_idx]; 
-
-    let pallet_idx = match (tile_column % 4 / 2, tile_row % 4 / 2) {
-        (0, 0) => attr_byte & 0b11,
-        (1, 0) => (attr_byte >> 2) & 0b11,
-        (0, 1) => (attr_byte >> 4) & 0b11,
-        (1, 1) => (attr_byte >> 6) & 0b11,
-        (_, _) => panic!("should not happen"),
-    };
-
-    let pallete_start: usize = 1 + (pallet_idx as usize) * 4;
-    [
-        ppu.palette_table[0],
-        ppu.palette_table[pallete_start],
-        ppu.palette_table[pallete_start + 1],
-        ppu.palette_table[pallete_start + 2],
-    ]
+#[derive(Clone, Copy)]
+struct SpritePixel {
+    color_idx: u8,
+    palette_idx: u8,
+    priority: bool,
 }
 
+fn get_sprite_scanline(ppu: &PPU, y: usize) -> [Option<SpritePixel>; 256] {
+    let mut scanline_buffer = [None; 256];
+    let sprite_size = ppu.ctrl.sprite_size() as usize;
 
-fn sprite_palette(ppu: &PPU, pallete_idx: u8) -> [u8; 4] {
-    let start = 0x11 + (pallete_idx * 4) as usize;
-    [
-        0,
-        ppu.palette_table[start],
-        ppu.palette_table[start + 1],
-        ppu.palette_table[start + 2],
-    ]
-}
+    for i in (0..ppu.oam_data.len()).step_by(4) {
+        let tile_y = ppu.oam_data[i] as usize;
 
-struct Rect {
-    x1: usize,
-    y1: usize,
-    x2: usize,
-    y2: usize,
-}
+        if y >= tile_y && y < tile_y + sprite_size {
+            let tile_idx = ppu.oam_data[i + 1] as u16;
+            let attr = ppu.oam_data[i + 2];
+            let tile_x = ppu.oam_data[i + 3] as usize;
 
-impl Rect {
-    fn new(x1: usize, y1: usize, x2: usize, y2: usize) -> Self {
-        Rect {
-            x1: x1,
-            y1: y1,
-            x2: x2,
-            y2: y2,
-        }
-    }
-}
+            let priority = (attr >> 5) & 1 == 1;
+            let flip_h = (attr >> 6) & 1 == 1;
+            let flip_v = (attr >> 7) & 1 == 1;
+            let palette_idx = attr & 0b11;
 
-fn render_name_table(ppu: &PPU, frame: &mut Frame, name_table: &[u8], 
-    view_port: Rect, shift_x: isize, shift_y: isize) {
-    let bank = ppu.ctrl.background_pattern_addr();
+            let bank: u16;
+            let tile_ptr: u16;
 
-    let attribute_table = &name_table[0x3c0.. 0x400];
+            if sprite_size == 16 {
+                bank = if tile_idx & 1 == 0 { 0 } else { 0x1000 };
+                tile_ptr = tile_idx & 0xFE;
+            } else {
+                bank = ppu.ctrl.sprite_pattern_addr();
+                tile_ptr = tile_idx;
+            }
 
-    for i in 0..0x3c0 {
-        let tile_column = i % 32;
-        let tile_row = i / 32;
-        let tile_idx = name_table[i] as u16;
-        let tile = &ppu.chr_rom[(bank + tile_idx * 16) as usize..=(bank + tile_idx * 16 + 15) as usize];
-        let palette = bg_pallette(ppu, attribute_table, tile_column, tile_row);
+            let mut row = y - tile_y;
+            if flip_v {
+                row = sprite_size - 1 - row;
+            }
 
-        for y in 0..=7 {
-            let mut upper = tile[y];
-            let mut lower = tile[y + 8];
+            let final_tile_ptr = if row >= 8 && sprite_size == 16 {
+                tile_ptr + 1
+            } else {
+                tile_ptr
+            };
 
-            for x in (0..=7).rev() {
-                let value = (1 & lower) << 1 | (1 & upper);
-                upper = upper >> 1;
-                lower = lower >> 1;
-                let rgb = match value {
-                    0 => SYSTEM_PALLETE[ppu.palette_table[0] as usize],
-                    1 => SYSTEM_PALLETE[palette[1] as usize],
-                    2 => SYSTEM_PALLETE[palette[2] as usize],
-                    3 => SYSTEM_PALLETE[palette[3] as usize],
-                    _ => panic!("can't be"),
-                };
-                let pixel_x = tile_column * 8 + x;
-                let pixel_y = tile_row * 8 + y;
+            let lo_byte = ppu.chr_rom[(bank + final_tile_ptr * 16 + (row % 8) as u16) as usize];
+            let hi_byte = ppu.chr_rom[(bank + final_tile_ptr * 16 + (row % 8) as u16 + 8) as usize];
 
-                if pixel_x >= view_port.x1 && pixel_x < view_port.x2 && pixel_y >= view_port.y1 && pixel_y < view_port.y2 {
-                    frame.set_pixel((shift_x + pixel_x as isize) as usize, (shift_y + pixel_y as isize) as usize, rgb);
+            for x in 0..8 {
+                if tile_x + x >= 256 {
+                    continue;
+                }
+
+                let current_x = if flip_h { 7 - x } else { x };
+                let bit_mask = 1 << (7 - current_x);
+
+                let pixel_val =
+                    ((lo_byte & bit_mask) > 0) as u8 | (((hi_byte & bit_mask) > 0) as u8) << 1;
+
+                if pixel_val != 0 && scanline_buffer[tile_x + x].is_none() {
+                    scanline_buffer[tile_x + x] = Some(SpritePixel {
+                        color_idx: pixel_val,
+                        palette_idx,
+                        priority,
+                    });
                 }
             }
         }
+    }
+    scanline_buffer
+}
+
+fn get_system_color(ppu: &PPU, palette_idx: u8, color_idx: u8, is_sprite: bool) -> (u8, u8, u8) {
+    let base_address = if is_sprite { 0x3F10 } else { 0x3F00 };
+    let palette_start = base_address + (palette_idx * 4) as usize;
+    let final_idx = if color_idx == 0 { 0 } else { color_idx };
+    let pal_index = ppu.palette_table[(palette_start + final_idx as usize) - 0x3F00];
+    SYSTEM_PALLETE[pal_index as usize]
+}
+
+fn get_bg_pixel(ppu: &PPU, x: usize, y: usize) -> (u8, u8) {
+    if !ppu.mask.is_background_enabled() {
+        return (0, 0);
+    }
+
+    let scroll_x = ppu.scroll.scroll_x as usize;
+    let scroll_y = ppu.scroll.scroll_y as usize;
+    let base_nt = ppu.ctrl.nametable_addr();
+
+    let base_nt_idx = match base_nt {
+        0x2000 => 0,
+        0x2400 => 1,
+        0x2800 => 2,
+        0x2C00 => 3,
+        _ => 0,
+    };
+
+    let coarse_x_offset = (base_nt_idx % 2) * 256;
+    let coarse_y_offset = (base_nt_idx / 2) * 240;
+
+    let abs_x = (coarse_x_offset + scroll_x + x) % 512;
+    let abs_y = (coarse_y_offset + scroll_y + y) % 480;
+
+    let current_nt_idx = (abs_x / 256) + (abs_y / 240) * 2;
+    let local_x = abs_x % 256;
+    let local_y = abs_y % 240;
+
+    let vram_slice = match (&ppu.mirroring, current_nt_idx) {
+        (Mirroring::Vertical, 0) | (Mirroring::Vertical, 2) => &ppu.vram[0..0x400],
+        (Mirroring::Vertical, 1) | (Mirroring::Vertical, 3) => &ppu.vram[0x400..0x800],
+        (Mirroring::Horizontal, 0) | (Mirroring::Horizontal, 1) => &ppu.vram[0..0x400],
+        (Mirroring::Horizontal, 2) | (Mirroring::Horizontal, 3) => &ppu.vram[0x400..0x800],
+        _ => &ppu.vram[0..0x400],
+    };
+
+    let tile_col = local_x / 8;
+    let tile_row = local_y / 8;
+    let tile_idx = vram_slice[tile_row * 32 + tile_col] as u16;
+
+    let attr_offset = 0x3C0 + (tile_row / 4) * 8 + (tile_col / 4);
+    let attr_byte = vram_slice[attr_offset];
+
+    let shift = match (tile_col % 4 / 2, tile_row % 4 / 2) {
+        (0, 0) => 0,
+        (1, 0) => 2,
+        (0, 1) => 4,
+        (1, 1) => 6,
+        _ => 0,
+    };
+    let palette_idx = (attr_byte >> shift) & 0b11;
+
+    let bank = ppu.ctrl.background_pattern_addr();
+    let fine_y = local_y % 8;
+    let lo = ppu.chr_rom[(bank + tile_idx * 16 + fine_y as u16) as usize];
+    let hi = ppu.chr_rom[(bank + tile_idx * 16 + fine_y as u16 + 8) as usize];
+
+    let fine_x = local_x % 8;
+    let bit_mask = 1 << (7 - fine_x);
+
+    let pixel_val = ((lo & bit_mask) > 0) as u8 | (((hi & bit_mask) > 0) as u8) << 1;
+
+    (pixel_val, palette_idx)
+}
+
+pub fn render_scanline(ppu: &PPU, frame: &mut Frame, y: usize) {
+    let sprite_scanline = get_sprite_scanline(ppu, y);
+    let backdrop_color = SYSTEM_PALLETE[ppu.palette_table[0] as usize];
+
+    for x in 0..256 {
+        let (bg_pixel, bg_palette) = get_bg_pixel(ppu, x, y);
+        let sprite_pixel = sprite_scanline[x];
+        let final_color;
+
+        match (bg_pixel, sprite_pixel) {
+            (0, None) => final_color = backdrop_color,
+            (1..=3, None) => final_color = get_system_color(ppu, bg_palette, bg_pixel, false),
+            (0, Some(sprite)) => {
+                final_color = get_system_color(ppu, sprite.palette_idx, sprite.color_idx, true)
+            }
+            (1..=3, Some(sprite)) => {
+                if sprite.priority {
+                    final_color = get_system_color(ppu, bg_palette, bg_pixel, false);
+                } else {
+                    final_color = get_system_color(ppu, sprite.palette_idx, sprite.color_idx, true);
+                }
+            }
+            _ => final_color = backdrop_color,
+        }
+        frame.set_pixel(x, y, final_color);
     }
 }
 
 pub fn render(ppu: &PPU, frame: &mut Frame) {
-    let scroll_x = (ppu.scroll.scroll_x) as usize;
-    let scroll_y = (ppu.scroll.scroll_y) as usize;
-
-    let (main_nametable, second_nametable) = match (&ppu.mirroring, ppu.ctrl.nametable_addr()) {
-        (Mirroring::Vertical, 0x2000) | (Mirroring::Vertical, 0x2800) | (Mirroring::Horizontal, 0x2000) | (Mirroring::Horizontal, 0x2400) => {
-            (&ppu.vram[0..0x400], &ppu.vram[0x400..0x800])
-        }
-        (Mirroring::Vertical, 0x2400) | (Mirroring::Vertical, 0x2C00) | (Mirroring::Horizontal, 0x2800) | (Mirroring::Horizontal, 0x2C00) => {
-            ( &ppu.vram[0x400..0x800], &ppu.vram[0..0x400])
-        }
-        (_,_) => {
-            panic!("Not supported mirroring type");
-        }
-    };
-
-    render_name_table(ppu, frame, 
-        main_nametable, 
-        Rect::new(scroll_x, scroll_y, 256, 240 ),
-        -(scroll_x as isize), -(scroll_y as isize)
-    );
-    if scroll_x > 0 {
-        render_name_table(ppu, frame, 
-            second_nametable, 
-            Rect::new(0, 0, scroll_x, 240),
-            (256 - scroll_x) as isize, 0
-        );
-    } else if scroll_y > 0 {
-        render_name_table(ppu, frame, 
-            second_nametable, 
-            Rect::new(0, 0, 256, scroll_y),
-            0, (240 - scroll_y) as isize
-        );
-    }
-
-    for i in (0..ppu.oam_data.len()).step_by(4).rev() {
-        let tile_idx = ppu.oam_data[i + 1] as u16;
-        let tile_x = ppu.oam_data[i + 3] as usize;
-        let tile_y = ppu.oam_data[i] as usize;
-
-        let flip_vertical = if ppu.oam_data[i + 2] >> 7 & 1 == 1 {
-            true
-        } else {
-            false
-        };
-        let flip_horizontal = if ppu.oam_data[i + 2] >> 6 & 1 == 1 {
-            true
-        } else {
-            false
-        };
-        let pallette_idx = ppu.oam_data[i + 2] & 0b11;
-        let sprite_palette = sprite_palette(ppu, pallette_idx);
-        let bank: u16 = ppu.ctrl.sprite_pattern_addr();
-
-        let tile =
-            &ppu.chr_rom[(bank + tile_idx * 16) as usize..=(bank + tile_idx * 16 + 15) as usize];
-
-        for y in 0..=7 {
-            let mut upper = tile[y];
-            let mut lower = tile[y + 8];
-            'ololo: for x in (0..=7).rev() {
-                let value = (1 & lower) << 1 | (1 & upper);
-                upper = upper >> 1;
-                lower = lower >> 1;
-                let rgb = match value {
-                    0 => continue 'ololo, // skip coloring the pixel
-                    1 => SYSTEM_PALLETE[sprite_palette[1] as usize],
-                    2 => SYSTEM_PALLETE[sprite_palette[2] as usize],
-                    3 => SYSTEM_PALLETE[sprite_palette[3] as usize],
-                    _ => panic!("can't be"),
-                };
-                match (flip_horizontal, flip_vertical) {
-                    (false, false) => {
-                        frame.set_pixel(tile_x + x , tile_y + y, rgb);
-                        // frame.set_pixel(tile_x + x, tile_y + y +250, rgb);
-                    },
-                    (true, false) => {
-                        frame.set_pixel(tile_x + 7 - x , tile_y + y , rgb);
-                        // frame.set_pixel(tile_x + 7 - x , tile_y + y + 250, rgb);
-                    }
-                    (false, true) => {
-                        frame.set_pixel(tile_x + x  , tile_y + 7 - y, rgb);
-                        // frame.set_pixel(tile_x + x, tile_y + 7 - y + 250, rgb);
-                    }
-                    (true, true) => {
-                        frame.set_pixel(tile_x + 7 - x , tile_y + 7 - y , rgb);
-                        // frame.set_pixel(tile_x + 7 - x, tile_y + 7 - y+250, rgb);
-                    }
-                }
-            }
-        }
+    for y in 0..240 {
+        render_scanline(ppu, frame, y);
     }
 }

@@ -22,8 +22,6 @@ impl ROM {
 
         let mapper = (raw[7] & 0b1111_0000) | (raw[6] >> 4);
 
-
-
         let four_screen = raw[6] & 0b1000 != 0;
         let vertical_mirroring = raw[6] & 0b1 != 0;
         let screen_mirroring = match (four_screen, vertical_mirroring) {

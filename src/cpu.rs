@@ -1,5 +1,5 @@
 use crate::bus::Bus;
-pub struct CPU <'a>{
+pub struct CPU<'a> {
     pub accumulator: u8,
     pub register_x: u8,
     pub register_y: u8,
@@ -37,8 +37,8 @@ pub enum AddressingMode {
     NoneAddressing,
 }
 
-impl<'a> CPU <'a>{
-    pub fn new<'b>(bus: Bus<'b>) -> CPU<'b> {        
+impl<'a> CPU<'a> {
+    pub fn new<'b>(bus: Bus<'b>) -> CPU<'b> {
         CPU {
             accumulator: 0,
             register_x: 0,
@@ -84,8 +84,6 @@ impl<'a> CPU <'a>{
             bytes.push(format!("{:02X}", self.mem_read(pc.wrapping_add(i as u16))));
         }
         let hex_bytes = bytes.join(" ");
-
-
 
         format!(
             "{:04X}  {:9} A:{:02X} X:{:02X} Y:{:02X} P:{:08b} SP:{:02X} PA:{:02X} PM:{:08b} PC:{:08b} PSC:{:02X} PS:{:08b} PPU: {:03}:{:03}",
