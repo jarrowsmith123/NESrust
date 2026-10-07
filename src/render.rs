@@ -154,11 +154,12 @@ fn get_sprite_scanline(ppu: &PPU, y: usize) -> [Option<SpritePixel>; 256] {
 
                 if pixel_val != 0 && scanline_buffer[tile_x + x].is_none() {
                     scanline_buffer[tile_x + x] = Some(SpritePixel {
-                        color_idx: pixel_val,
-                        palette_idx,
-                        priority,
+                            color_idx: pixel_val,
+                            palette_idx,
+                            priority,
                     });
                 }
+                
             }
         }
     }

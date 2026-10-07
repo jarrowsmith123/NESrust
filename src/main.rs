@@ -1,14 +1,13 @@
 pub mod bus;
 pub mod cart;
-pub mod controller;
 pub mod cpu;
 pub mod ppu;
 pub mod render;
+pub mod controller;
 
 use bus::Bus;
 use cart::ROM;
 use cpu::CPU;
-use ppu::PPU;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
@@ -47,42 +46,49 @@ fn main() {
     //load the game
     let bytes: Vec<u8> = std::fs::read("smb.nes").unwrap();
     let rom = ROM::new(&bytes).unwrap();
-
     let mut frame = Frame::new();
 
-    let bus = Bus::new(rom, move |ppu: &PPU, joypad: &mut controller::Joypad| {
-        render::render(ppu, &mut frame);
-        texture.update(None, &frame.data, 256 * 2 * 3).unwrap();
+    let bus = Bus::new(rom);
+    let mut cpu = CPU::new(bus);
+    cpu.reset();
 
-        canvas.copy(&texture, None, None).unwrap();
 
-        canvas.present();
-        for event in event_pump.poll_iter() {
-            match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => std::process::exit(0),
+    'running: loop {
+        // Run one CPU instruction
+        cpu.step();
 
-                Event::KeyDown { keycode, .. } => {
-                    if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
-                        joypad.set_button_pressed_status(*key, true);
-                    }
-                }
-                Event::KeyUp { keycode, .. } => {
-                    if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
-                        joypad.set_button_pressed_status(*key, false);
-                    }
-                }
-
-                _ => { /* do nothing */ }
+        if cpu.bus.ppu.scanline_complete {
+            cpu.bus.ppu.scanline_complete = false; // Reset flag
+            
+            let line = cpu.bus.ppu.scanline.wrapping_sub(1) as usize;
+            if line < 240 {
+                render::render_scanline(&cpu.bus.ppu, &mut frame, line);
             }
         }
-    });
+        
+        if cpu.bus.ppu.scanline == 241 && cpu.bus.ppu.cycles < 10 {
 
-    let mut cpu = CPU::new(bus);
-
-    cpu.reset();
-    cpu.run();
+            texture.update(None, &frame.data, 256 * 2 * 3).unwrap();
+            canvas.copy(&texture, None, None).unwrap();
+            canvas.present();
+            
+            // Handle Input
+            for event in event_pump.poll_iter() {
+                match event {
+                    Event::Quit { .. } | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => break 'running,
+                    Event::KeyDown { keycode, .. } => {
+                        if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
+                            cpu.bus.joypad1.set_button_pressed_status(*key, true);
+                        }
+                    }
+                    Event::KeyUp { keycode, .. } => {
+                        if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
+                            cpu.bus.joypad1.set_button_pressed_status(*key, false);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
 }

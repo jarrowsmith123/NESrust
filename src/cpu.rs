@@ -1,12 +1,13 @@
 use crate::bus::Bus;
-pub struct CPU<'a> {
+
+pub struct CPU {
     pub accumulator: u8,
     pub register_x: u8,
     pub register_y: u8,
     pub status: u8,
     pub program_counter: u16,
     pub stack_pointer: u8,
-    pub bus: Bus<'a>,
+    pub bus: Bus,
 }
 
 /// # Status Register (P) http://wiki.nesdev.com/w/index.php/Status_flags
@@ -37,8 +38,8 @@ pub enum AddressingMode {
     NoneAddressing,
 }
 
-impl<'a> CPU<'a> {
-    pub fn new<'b>(bus: Bus<'b>) -> CPU<'b> {
+impl CPU {
+    pub fn new(bus: Bus) -> CPU {
         CPU {
             accumulator: 0,
             register_x: 0,
@@ -765,19 +766,11 @@ impl<'a> CPU<'a> {
         self.program_counter = self.mem_read_u16(0xFFFE);
     }
 
-    pub fn run(&mut self) {
-        self.run_with_callback(|_| {});
-    }
-
-    pub fn run_with_callback<F>(&mut self, mut callback: F)
-    where
-        F: FnMut(&mut CPU),
-    {
-        loop {
+    pub fn step(&mut self) {
             if let Some(_nmi) = self.bus.poll_interupt() {
                 self.interupt_nmi()
             }
-            callback(self);
+
             //println!("{}", self.get_trace());
             let opcode = self.mem_read(self.program_counter);
             self.program_counter += 1;
@@ -1498,7 +1491,6 @@ impl<'a> CPU<'a> {
                 }
 
                 _ => {}
-            }
         }
     }
 }

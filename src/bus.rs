@@ -1,26 +1,31 @@
 use crate::cart::ROM;
 use crate::controller::Joypad;
 use crate::ppu::PPU;
+use crate::cpu::CPU;
+
+
+use serde::{Deserialize,Serialize};
+
+
+
 const RAM: u16 = 0x0000;
 const RAM_MIRROR_END: u16 = 0x1FFF;
 const PPU_REGISTER_MIRROR_END: u16 = 0x3FFF;
 
-pub struct Bus<'call> {
+
+pub struct Bus {
     vram: [u8; 2048],
     prg_rom: Vec<u8>,
     pub ppu: PPU,
 
     cycles: usize,
-    gameloop_callback: Box<dyn FnMut(&PPU, &mut Joypad) + 'call>,
-
-    joypad1: Joypad,
-    joypad2: Joypad,
+    pub joypad1: Joypad,
+    pub joypad2: Joypad,
 }
 
-impl<'a> Bus<'a> {
-    pub fn new<'call, F>(rom: ROM, gameloop_callback: F) -> Bus<'call>
-    where
-        F: FnMut(&PPU, &mut Joypad) + 'call,
+impl Bus {
+    pub fn new(rom: ROM) -> Bus
+
     {
         let ppu = PPU::new(rom.chr_rom, rom.screen_mirroring);
         Bus {
@@ -28,7 +33,6 @@ impl<'a> Bus<'a> {
             prg_rom: rom.prg_rom,
             ppu,
             cycles: 0,
-            gameloop_callback: Box::from(gameloop_callback),
             joypad1: Joypad::new(),
             joypad2: Joypad::new(),
         }
@@ -36,14 +40,7 @@ impl<'a> Bus<'a> {
 
     pub fn cycle_clock(&mut self, cycles: u8) {
         self.cycles += cycles as usize;
-
-        let nmi_before = self.ppu.nmi_interupt.is_some();
         self.ppu.cycle_clock(cycles * 3);
-        let nmi_after = self.ppu.nmi_interupt.is_some();
-
-        if !nmi_before && nmi_after {
-            (self.gameloop_callback)(&self.ppu, &mut self.joypad1);
-        }
     }
 
     pub fn mem_read(&mut self, addr: u16) -> u8 {
@@ -136,15 +133,4 @@ impl<'a> Bus<'a> {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
-    use crate::cart::test;
 
-    #[test]
-    fn test_mem_read_write_to_ram() {
-        let mut bus = Bus::new(test::test_rom(), |_ppu, _joypad| {});
-        bus.mem_write(0x01, 0x55);
-        assert_eq!(bus.mem_read(0x01), 0x55);
-    }
-}

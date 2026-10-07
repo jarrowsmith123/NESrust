@@ -1,5 +1,6 @@
 use core::panic;
 use crate::cart::Mirroring;
+use serde::{Deserialize, Serialize};
 
 pub struct PPU {
     pub chr_rom: Vec<u8>,
@@ -18,9 +19,14 @@ pub struct PPU {
     pub data_buf: u8,
 
     pub scanline: u16,
+    pub scanline_complete: bool,
     pub cycles: usize,
 
     pub nmi_interupt: Option<u8>,
+
+    
+
+    
 }
 
 impl PPU {
@@ -39,6 +45,7 @@ impl PPU {
             mirroring,
             data_buf: 0,
             scanline: 0,
+            scanline_complete: false,
             cycles: 0,
             nmi_interupt: None,
         }
@@ -50,6 +57,7 @@ impl PPU {
 
     pub fn write_ppu_addr(&mut self, value: u8) {
         self.addr.update(value);
+        
     }
 
     pub fn write_ctrl(&mut self, value: u8) {
@@ -167,12 +175,18 @@ impl PPU {
     pub fn cycle_clock(&mut self, cycles: u8) -> bool {
         self.cycles += cycles as usize;
 
+        
         if self.cycles >= 341 {
             if self.is_sprite_0_hit(self.cycles) {
                 self.status.set_sprite_zero_hit(true);
             }
             self.cycles -= 341;
             self.scanline += 1;
+
+            if self.scanline <= 240 {
+                self.scanline_complete = true;
+            }
+
 
             if self.scanline == 241 {
                 self.status.set_vblank_status(true);
@@ -182,12 +196,24 @@ impl PPU {
                 }
             }
 
-            if self.scanline >= 262 {
+            if self.scanline == 261 {
+                if self.cycles == 1{
+                    self.status.reset_vblank_flag();
+                    self.status.set_sprite_zero_hit(false);
+                    self.nmi_interupt = None;
+                    self.scroll.scroll_x = 0;
+                    self.scroll.scroll_y = 0;
+                    self.ctrl.update(0);
+                }
+            }
+
+            if self.scanline >= 261 {
                 self.scanline = 0;
                 self.nmi_interupt = None;
                 self.status.set_sprite_zero_hit(false);
                 self.status.reset_vblank_flag();
                 return true;
+                
             }
         }
         return false;
@@ -206,6 +232,9 @@ impl PPU {
         self.nmi_interupt.take()
     }
 }
+
+
+#[derive(Serialize, Deserialize, Clone)]
 
 pub struct AddrRegister {
     value: (u8, u8),
@@ -259,6 +288,8 @@ impl AddrRegister {
         ((self.value.0 as u16) << 8) | (self.value.1 as u16)
     }
 }
+
+#[derive(Serialize, Deserialize, Clone)]
 
 pub struct ControlRegister {
     bits: u8,
@@ -333,6 +364,8 @@ impl ControlRegister {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+
 pub struct StatusRegister {
     bits: u8,
 }
@@ -378,6 +411,8 @@ impl StatusRegister {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+
 pub struct MaskRegister {
     bits: u8,
 }
@@ -415,6 +450,7 @@ impl MaskRegister {
         self.bits |= Self::ENABLE_BCKGRND;
     }
 }
+
 
 pub struct ScrollRegister {
     pub scroll_x: u8,
